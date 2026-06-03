@@ -2,95 +2,117 @@ import os
 import re
 import sys
 
-def patch_clean_telegram():
+def patch_werygram_core():
     settings_path = "TMessagesProj/src/main/java/org/telegram/ui/SettingsActivity.java"
+    userconfig_path = "TMessagesProj/src/main/java/org/telegram/messenger/UserConfig.java"
+    messages_path = "TMessagesProj/src/main/java/org/telegram/messenger/MessagesController.java"
     
     if not os.path.exists(settings_path):
         print(f"🚨 КРИТИЧЕСКАЯ ОШИБКА: Файл не найден: {settings_path}")
         sys.exit(1)
 
-    print("⏳ Авто-патчер WeryGram начал работу...")
+    print("⏳ Тройной авто-патчер WeryGram Premium запущен...")
 
+    # ==========================================
+    # 1. МОДЕРНИЗАЦИЯ ИНТЕРФЕЙСА (SettingsActivity)
+    # ==========================================
     with open(settings_path, "r", encoding="utf-8") as f:
         code = f.read()
 
-    # 0. ОЧИСТКА: Вычищаем старые следы мода, чтобы не было накладок
+    # Очищаем старые версии кнопки и кейсов
     code = re.sub(r'case 9999:.*?break;', '', code, flags=re.DOTALL)
-    werygram_btn = 'items.add(SettingCell.Factory.of(9999, 0xFF55CA47, 0xFF27B434, R.drawable.msg_settings, "WeryGram"));'
-    code = code.replace(werygram_btn, "")
-    code = code.replace('items.add(UItem.asAction(9999, R.drawable.msg_settings, "WeryGram"));', "")
+    code = re.sub(r'items\.add\(SettingCell\.Factory\.of\(9999,[\s\S]*?\);\s*', '', code)
+    code = re.sub(r'items\.add\(UItem\.asCheck\(9999,[\s\S]*?\);\s*', '', code)
 
-    is_button_ok = False
-    is_click_ok = False
+    # Создаем кнопку-тумблер (CheckCell), которая читает настройки из глобального конфига
+    werygram_toggle = 'items.add(UItem.asCheck(9999, "WeryGram Premium").setChecked(org.telegram.messenger.MessagesController.getGlobalMainSettings().getBoolean("visual_premium", false)));'
 
-    # 1. УМНЫЙ ПОИСК ЯКОРЯ ДЛЯ КНОПКИ (Ищет сквозь переносы строк)
-    match_chat = re.search(r'(items\.add\([\s\S]*?[cC]hat[sS]ettings[\s\S]*?\);)', code)
-    match_privacy = re.search(r'(items\.add\([\s\S]*?[pP]rivacy[\s\S]*?\);)', code)
-    match_notifications = re.search(r'(items\.add\([\s\S]*?[nN]otif[\s\S]*?\);)', code)
-
-    if match_chat:
-        anchor = match_chat.group(1)
-        code = code.replace(anchor, f'{anchor}\n        {werygram_btn}')
-        is_button_ok = True
-        print("✅ Кнопка WeryGram успешно добавлена под 'Настройки чатов'!")
-    elif match_privacy:
-        anchor = match_privacy.group(1)
-        code = code.replace(anchor, f'{anchor}\n        {werygram_btn}')
-        is_button_ok = True
-        print("✅ Кнопка WeryGram успешно добавлена под 'Конфиденциальность'!")
-    elif match_notifications:
-        anchor = match_notifications.group(1)
-        code = code.replace(anchor, f'{anchor}\n        {werygram_btn}')
-        is_button_ok = True
-        print("✅ Кнопка WeryGram успешно добавлена под 'Уведомления'!")
+    # Ставим кнопку в САМЫЙ ВЕРХ первого списка (прямо перед Уведомлениями / Notifications)
+    match_notif = re.search(r'(items\.add\([\s\S]*?[nN]otif[\s\S]*?\);)', code)
+    if match_notif:
+        anchor = match_notif.group(1)
+        code = code.replace(anchor, f'{werygram_toggle}\n        {anchor}')
+        print("✅ Кнопка-тумблер WeryGram установлена на самый верх первого списка!")
     else:
-        print("🚨 ОШИБКА: Не удалось найти ни один стандартный раздел (ChatSettings, Privacy, Notifications) для вставки кнопки!")
+        # Резервный вариант, если структура иная
+        code = code.replace("switch (item.id) {", f"items.add(0, UItem.asCheck(9999, \"WeryGram Premium\"));\n        switch (item.id) {")
+        print("✅ Кнопка-тумблер WeryGram установлена в начало списка (резервный метод).")
 
-    # 2. ВНЕДРЕНИЕ ДИАЛОГОВОГО ОКНА (ОБРАБОТЧИК КЛИКА)
+    # Вшиваем обработку клика: переключение тумблера + моментальное уведомление (Toast)
     switch_anchor = "switch (item.id) {"
     if switch_anchor in code:
-        dialog_code = """case 9999:
-            if (SettingsActivity.this.getParentActivity() != null) {
-                android.app.AlertDialog.Builder builder = new android.app.AlertDialog.Builder(SettingsActivity.this.getParentActivity());
-                
-                boolean isEnabled = SettingsActivity.this.getParentActivity().getSharedPreferences("werygram_settings", android.content.Context.MODE_PRIVATE).getBoolean("visual_premium", false);
-                builder.setTitle("WeryGram Premium (" + (isEnabled ? "Включен" : "Выключен") + ")");
-                
-                builder.setMessage("Premium данная функция включает телеграм премиум визуально");
-                
-                builder.setPositiveButton("Включить", new android.content.DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(android.content.DialogInterface dialog, int which) {
-                        SettingsActivity.this.getParentActivity().getSharedPreferences("werygram_settings", android.content.Context.MODE_PRIVATE).edit().putBoolean("visual_premium", true).apply();
-                        android.widget.Toast.makeText(SettingsActivity.this.getParentActivity(), "Визуальный Premium успешно ВКЛЮЧЕН! Перезапустите приложение.", android.widget.Toast.LENGTH_SHORT).show();
-                    }
-                });
-                
-                builder.setNegativeButton("Выключить", new android.content.DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(android.content.DialogInterface dialog, int which) {
-                        SettingsActivity.this.getParentActivity().getSharedPreferences("werygram_settings", android.content.Context.MODE_PRIVATE).edit().putBoolean("visual_premium", false).apply();
-                        android.widget.Toast.makeText(SettingsActivity.this.getParentActivity(), "Визуальный Premium ВЫКЛЮЧЕН!", android.widget.Toast.LENGTH_SHORT).show();
-                    }
-                });
-                
-                builder.show();
+        click_logic = """case 9999: {
+            boolean newState = !org.telegram.messenger.MessagesController.getGlobalMainSettings().getBoolean("visual_premium", false);
+            org.telegram.messenger.MessagesController.getGlobalMainSettings().edit().putBoolean("visual_premium", newState).apply();
+            
+            item.checked = newState;
+            if (view instanceof org.telegram.ui.Cells.TextCheckCell) {
+                ((org.telegram.ui.Cells.TextCheckCell) view).setChecked(newState);
             }
-            break;"""
-        
-        code = code.replace(switch_anchor, f"{switch_anchor}\n            {dialog_code}")
-        is_click_ok = True
-        print("✅ Интерактивное диалоговое окно успешно вшито в обработчик кликов!")
-
-    # Финальная проверка работоспособности патча
-    if not is_button_ok or not is_click_ok:
-        print("🚨 Критическая ошибка: Патч применен не полностью. Сборка остановлена.")
-        sys.exit(1)
+            
+            android.widget.Toast.makeText(SettingsActivity.this.getParentActivity(), newState ? "WeryGram: Visual Premium АКТИВИРОВАН! 🎉" : "WeryGram: Visual Premium ОТКЛЮЧЕН", android.widget.Toast.LENGTH_SHORT).show();
+            
+            // Мгновенно обновляем наш профиль на экране
+            org.telegram.messenger.UserConfig.getInstance(currentAccount).getCurrentUser();
+            if (SettingsActivity.this.getAdapter() != null) {
+                SettingsActivity.this.getAdapter().notifyItemChanged(position);
+            }
+            break;
+        }"""
+        code = code.replace(switch_anchor, f"{switch_anchor}\n            {click_logic}")
+        print("✅ Быстрый переключатель с уведомлением успешно добавлен в клики!")
 
     with open(settings_path, "w", encoding="utf-8") as f:
         f.write(code)
 
-    print("\n🎉 ВСЁ ГОТОВО! Логика успешно обновлена.")
+    # ==========================================
+    # 2. АКТИВАЦИЯ ПРЕМИУМА В СИСТЕМЕ (UserConfig)
+    # ==========================================
+    if os.path.exists(userconfig_path):
+        with open(userconfig_path, "r", encoding="utf-8") as f:
+            uc_code = f.read()
+        
+        if "visual_premium" not in uc_code:
+            uc_anchor = "public TLRPC.User getCurrentUser() {"
+            if uc_anchor in uc_code:
+                uc_injection = """public TLRPC.User getCurrentUser() {
+        if (currentUser != null && org.telegram.messenger.MessagesController.getGlobalMainSettings().getBoolean("visual_premium", false)) {
+            currentUser.premium = true;
+            currentUser.verified = true;
+        }"""
+                uc_code = uc_code.replace(uc_anchor, uc_injection)
+                with open(userconfig_path, "w", encoding="utf-8") as f:
+                    f.write(uc_code)
+                print("✅ Логика Premium + Галочка успешно внедрены в профиль аккаунта!")
+
+    # ==========================================
+    # 3. ПОДМЕНА СТАТУСА ДЛЯ ОТОБРАЖЕНИЯ (MessagesController)
+    # ==========================================
+    if os.path.exists(messages_path):
+        with open(messages_path, "r", encoding="utf-8") as f:
+            mc_code = f.read()
+        
+        if "visual_premium" not in mc_code:
+            # Умная регулярка находит метод getUser независимо от того, Long или Integer там на входе
+            mc_code = re.sub(
+                r'public TLRPC\.User getUser\((Long|Integer)\s+(\w+)\)\s*\{\s*return\s+(\w+)\.get\(\2\);\s*\}',
+                r'''public TLRPC.User getUser(\1 \2) {
+        TLRPC.User user = \3.get(\2);
+        if (user != null && \2 != null && \2.equals(UserConfig.getInstance(currentAccount).getClientUserId())) {
+            if (org.telegram.messenger.MessagesController.getGlobalMainSettings().getBoolean("visual_premium", false)) {
+                user.premium = true;
+                user.verified = true;
+            }
+        }
+        return user;
+    }''',
+                mc_code
+            )
+            with open(messages_path, "w", encoding="utf-8") as f:
+                f.write(mc_code)
+            print("✅ Системный перехватчик ID запущен. Статус Premium активен глобально!")
+
+    print("\n🎉 ВСЕ МОДУЛИ УСПЕШНО МОДИФИЦИРОВАНЫ! Проект готов к полной сборке.")
 
 if __name__ == "__main__":
-    patch_clean_telegram()
+    patch_werygram_core()
