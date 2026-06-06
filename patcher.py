@@ -5,7 +5,7 @@ import re
 import sys
 
 def patch_werygram_core():
-    print("WeryGram Premium Patcher v9.0 zapuskaetsya...")
+    print("WeryGram Premium Patcher v10.0 zapuskaetsya...")
 
     settings_path   = "TMessagesProj/src/main/java/org/telegram/ui/SettingsActivity.java"
     userconfig_path = "TMessagesProj/src/main/java/org/telegram/messenger/UserConfig.java"
@@ -50,45 +50,41 @@ case 9999: {
         f.write(code)
 
     # ==========================================
-    # 2. UserConfig — БЕЗ regex, простая замена
+    # 2. UserConfig — вставляем ВНУТРЬ synchronized
+    # Оригинальный метод:
+    #   public TLRPC.User getCurrentUser() {
+    #       synchronized (sync) {
+    #           return currentUser;
+    #       }
+    #   }
     # ==========================================
     if os.path.exists(userconfig_path):
         with open(userconfig_path, "r", encoding="utf-8") as f:
             uc = f.read()
 
-        # Проверяем что файл не сломан
-        if not uc.strip().startswith("package"):
-            print("ERROR: UserConfig.java slomal! Pervaya stroka ne 'package'")
+        if not uc.strip().startswith("/*") and not uc.strip().startswith("package"):
+            print("ERROR: UserConfig.java slomal!")
             sys.exit(1)
 
         if "visual_premium" not in uc:
-            # Ищем точную строку открытия метода и вставляем ПОСЛЕ неё
-            # Пробуем разные варианты отступов
-            anchors = [
-                "public TLRPC.User getCurrentUser() {\n",
-                "public TLRPC.User getCurrentUser() {\r\n",
-            ]
-            patched = False
-            for anchor in anchors:
-                if anchor in uc:
-                    insert = (
-                        "        if (currentUser != null && "
-                        "org.telegram.messenger.MessagesController.getGlobalMainSettings()"
-                        ".getBoolean(\"visual_premium\", false)) {\n"
-                        "            currentUser.premium = true;\n"
-                        "            currentUser.verified = true;\n"
-                        "        }\n"
-                    )
-                    uc = uc.replace(anchor, anchor + insert, 1)
-                    patched = True
-                    print("OK UserConfig spatcherovan")
-                    break
-
-            if not patched:
-                print("WARN getCurrentUser() ne najden — propuskaem UserConfig")
-
-            with open(userconfig_path, "w", encoding="utf-8") as f:
-                f.write(uc)
+            # Точный anchor — строка внутри synchronized
+            OLD = "        synchronized (sync) {\n            return currentUser;\n        }\n    }"
+            NEW = (
+                "        synchronized (sync) {\n"
+                "            if (currentUser != null && org.telegram.messenger.MessagesController.getGlobalMainSettings().getBoolean(\"visual_premium\", false)) {\n"
+                "                currentUser.premium = true;\n"
+                "            }\n"
+                "            return currentUser;\n"
+                "        }\n"
+                "    }"
+            )
+            if OLD in uc:
+                uc = uc.replace(OLD, NEW, 1)
+                with open(userconfig_path, "w", encoding="utf-8") as f:
+                    f.write(uc)
+                print("OK UserConfig spatcherovan")
+            else:
+                print("WARN getCurrentUser() ne najden — propuskaem")
         else:
             print("INFO UserConfig uzhe spatcherovan")
 
@@ -117,7 +113,6 @@ case 9999: {
                 "        if (user != null && id != null && id.equals(UserConfig.getInstance(currentAccount).getClientUserId())) {\n"
                 "            if (org.telegram.messenger.MessagesController.getGlobalMainSettings().getBoolean(\"visual_premium\", false)) {\n"
                 "                user.premium = true;\n"
-                "                user.verified = true;\n"
                 "            }\n"
                 "        }\n"
                 "        return user;\n"
@@ -127,8 +122,7 @@ case 9999: {
                 mc = mc.replace(OLD, NEW, 1)
                 print("OK MessagesController spatcherovan")
             else:
-                print("WARN MessagesController: signatury ne sovpali — propuskaem")
-
+                print("WARN MessagesController: signatury ne sovpali")
             with open(messages_path, "w", encoding="utf-8") as f:
                 f.write(mc)
         else:
@@ -298,4 +292,4 @@ public class WeryGramPremiumActivity extends BaseFragment {
 
 if __name__ == "__main__":
     patch_werygram_core()
-                    
+    
