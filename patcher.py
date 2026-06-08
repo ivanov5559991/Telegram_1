@@ -117,14 +117,12 @@ def patch_user_config(errors):
     if 'wery_visual_premium' in text:
         print("↩ skip UserConfig"); return errors
 
-    # --- ДОБАВЛЕННЫЙ ХУК ДЛЯ КЛИЕНТСКИХ МЕТОДОВ (ФИКС СБРОСА СТИКЕРОВ И СТАТУСОВ) ---
     if "public boolean isPremium() {" in text:
         text = text.replace(
             "public boolean isPremium() {",
             "public boolean isPremium() {\n        if (org.telegram.messenger.MessagesController.getGlobalMainSettings().getBoolean(\"wery_visual_premium\", false)) return true;"
         )
 
-    # Находим getCurrentUser() и первый return currentUser; после него
     sig_pos = text.find("getCurrentUser()")
     if sig_pos == -1:
         print("✘ UserConfig: getCurrentUser() не найден", file=sys.stderr)
@@ -135,7 +133,6 @@ def patch_user_config(errors):
         print("✘ UserConfig: return currentUser; не найден", file=sys.stderr)
         return errors + 1
 
-    # Определяем отступ
     line_start = text.rfind('\n', 0, ret_pos) + 1
     indent = ''
     for ch in text[line_start:ret_pos]:
@@ -155,12 +152,48 @@ def patch_user_config(errors):
     write(uc, new_text)
     return errors
 
+def patch_messages_controller(errors):
+    mc = find_file("MessagesController.java")
+    if not mc:
+        print("✘ MessagesController.java not found", file=sys.stderr)
+        return errors + 1
+
+    text = read(mc)
+    if 'wery_visual_premium' in text:
+        print("↩ skip MessagesController"); return errors
+
+    # Ищем сигнатуру метода получения юзера из глобального кэша приложения
+    variants = [
+        "public TLRPC.User getUser(Long id) {",
+        "public TLRPC.User getUser(Long uid) {",
+        "public TLRPC.User getUser(Long javaLong) {"
+    ]
+    
+    marker = next((v for v in variants if v in text), None)
+    if not marker:
+        print("✘ MessagesController: метод getUser(Long) не найден", file=sys.stderr)
+        return errors + 1
+
+    var_name = "id" if "id)" in marker else ("uid" if "uid)" in marker else "javaLong")
+    
+    # Хук: перехватываем возврат текущего юзера и жестко фиксируем ему премиум локально
+    insertion = (
+        f"        if (org.telegram.messenger.MessagesController.getGlobalMainSettings().getBoolean(\"wery_visual_premium\", false)) {{\n"
+        f"            org.telegram.tgnet.TLRPC.User __u = users.get({var_name});\n"
+        f"            if (__u != null) __u.premium = true;\n"
+        f"        }}"
+    )
+    
+    write(mc, text.replace(marker, marker + "\n" + insertion, 1))
+    return errors
+
 def main():
     print("▶ WeryGram patcher\n")
     errors = 0
 
-    # UserConfig — визуальный премиум
+    # Защита ядра конфигурации и кэша контроллера сообщений
     errors = patch_user_config(errors)
+    errors = patch_messages_controller(errors)
 
     # SettingsActivity
     sa = find_file("SettingsActivity.java")
