@@ -11,6 +11,7 @@ workflows:
       - name: Set permissions
         script: chmod +x gradlew
       - name: Build APK
-        script: ./gradlew :TMessagesProj_App:assembleAfatDebug --no-parallel --stacktrace 2>&1 | tail -200
+        script: |
+          ./gradlew :TMessagesProj_App:assembleAfatDebug --no-parallel 2>&1 | grep -A 5 "error:" || ./gradlew :TMessagesProj_App:assembleAfatDebug --no-parallel
     artifacts:
       - "**/*.apk"
