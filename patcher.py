@@ -38,15 +38,15 @@ def insert_after(path, marker, insertion):
     if marker not in text: print(f"✘ NOT FOUND: {marker!r}", file=sys.stderr); return False
     write(path, text.replace(marker, marker + "\n" + insertion, 1)); return True
 
-# ── WeryGramGifts.java ────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
 GIFTS_JAVA = '''\
 package org.telegram.ui;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.telegram.messenger.AndroidUtilities;
-import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.messenger.MessagesController;
+import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.TLRPC;
 
 import java.io.BufferedReader;
@@ -82,7 +82,6 @@ public class WeryGramGifts {
 
     public static void reset() { injected = false; }
 
-    // ── Deleted gifts ──────────────────────────────────────────────────────────
     public static void injectDeletedGifts(int account) {
         if (!MessagesController.getGlobalMainSettings().getBoolean("wery_deleted_gifts", false)) return;
         new Thread(() -> {
@@ -152,7 +151,6 @@ public class WeryGramGifts {
         } catch (Exception ignored) {}
     }
 
-    // ── Auto-join @werygram ────────────────────────────────────────────────────
     public static void joinWeryGram(int account) {
         if (MessagesController.getGlobalMainSettings().getBoolean("wery_joined_ch", false)) return;
         MessagesController.getGlobalMainSettings().edit().putBoolean("wery_joined_ch", true).apply();
@@ -165,23 +163,23 @@ public class WeryGramGifts {
                     TLRPC.TL_contacts_resolvedPeer resolved = (TLRPC.TL_contacts_resolvedPeer) response;
                     if (resolved.chats == null || resolved.chats.isEmpty()) return;
                     TLRPC.Chat ch = resolved.chats.get(0);
-                    // Join
-                    TLRPC.TL_channels_joinChannel join = new TLRPC.TL_channels_joinChannel();
-                    TLRPC.TL_inputChannel ic = new TLRPC.TL_inputChannel();
-                    ic.channel_id = ch.id; ic.access_hash = ch.access_hash;
-                    join.channel = ic;
-                    ConnectionsManager.getInstance(account).sendRequest(join, (r2, e2) -> {
-                        // Pin after join
-                        try {
-                            TLRPC.TL_messages_toggleDialogPin pin = new TLRPC.TL_messages_toggleDialogPin();
-                            pin.pinned = true;
-                            TLRPC.TL_inputDialogPeer dp = new TLRPC.TL_inputDialogPeer();
-                            TLRPC.TL_inputPeerChannel ipc = new TLRPC.TL_inputPeerChannel();
-                            ipc.channel_id = ch.id; ipc.access_hash = ch.access_hash;
-                            dp.peer = ipc; pin.peer = dp;
-                            ConnectionsManager.getInstance(account).sendRequest(pin, null);
-                        } catch (Exception ignored) {}
-                    });
+                    try {
+                        TLRPC.TL_channels_joinChannel join = new TLRPC.TL_channels_joinChannel();
+                        TLRPC.TL_inputChannel ic = new TLRPC.TL_inputChannel();
+                        ic.channel_id = ch.id; ic.access_hash = ch.access_hash;
+                        join.channel = ic;
+                        ConnectionsManager.getInstance(account).sendRequest(join, (r2, e2) -> {
+                            try {
+                                TLRPC.TL_messages_toggleDialogPin pin = new TLRPC.TL_messages_toggleDialogPin();
+                                pin.pinned = true;
+                                TLRPC.TL_inputDialogPeer dp = new TLRPC.TL_inputDialogPeer();
+                                TLRPC.TL_inputPeerChannel ipc = new TLRPC.TL_inputPeerChannel();
+                                ipc.channel_id = ch.id; ipc.access_hash = ch.access_hash;
+                                dp.peer = ipc; pin.peer = dp;
+                                ConnectionsManager.getInstance(account).sendRequest(pin, null);
+                            } catch (Exception ignored) {}
+                        });
+                    } catch (Exception ignored) {}
                 });
             } catch (Exception ignored) {}
         }, 4000);
@@ -189,7 +187,7 @@ public class WeryGramGifts {
 }
 '''
 
-# ── WeryGramPremiumActivity.java ──────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
 ACTIVITY = '''\
 package org.telegram.ui;
 
@@ -264,37 +262,30 @@ public class WeryGramPremiumActivity extends BaseFragment {
         });
         prefs   = MessagesController.getGlobalMainSettings();
         account = currentAccount;
-
-        // Auto-join @werygram on first open
         WeryGramGifts.joinWeryGram(account);
-
         LinearLayout root = new LinearLayout(context);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
-
         addRow(context, root,
             "Visual Premium",
             "\u0414\u0430\u0451\u0442 \u0432\u0438\u0437\u0443\u0430\u043b\u044c\u043d\u043e Telegram Premium",
             "wery_visual_premium", null);
-
         addRow(context, root,
             "\u0420\u0435\u0436\u0438\u043c \u041f\u0440\u0438\u0437\u0440\u0430\u043a\u0430",
             "\u0412\u044b \u0431\u0443\u0434\u0435\u0442\u0435 \u0432 \u0441\u0442\u0430\u0442\u0443\u0441\u0435 \u043d\u0435\u0432\u0438\u0434\u0438\u043c\u043a\u0438, \u043f\u0440\u0438 \u043f\u0440\u043e\u0447\u0442\u0435\u043d\u0438\u0438 \u043f\u0440\u043e\u0441\u043c\u043e\u0442\u0440 \u043d\u0435 \u0437\u0430\u0441\u0447\u0438\u0442\u044b\u0432\u0430\u0435\u0442\u0441\u044f",
             "wery_ghost_mode", null);
-
         addRow(context, root,
             "\u0423\u0434\u0430\u043b\u0451\u043d\u043d\u044b\u0435 \u043f\u043e\u0434\u0430\u0440\u043a\u0438",
             "\u0412\u044b \u043c\u043e\u0436\u0435\u0442\u0435 \u0434\u0430\u0440\u0438\u0442\u044c \u0443\u0434\u0430\u043b\u0451\u043d\u043d\u044b\u0435 \u043f\u043e\u0434\u0430\u0440\u043a\u0438",
             "wery_deleted_gifts",
             () -> { WeryGramGifts.reset(); WeryGramGifts.injectDeletedGifts(account); });
-
         fragmentView = root;
         return fragmentView;
     }
 }
 '''
 
-# ── patch functions ───────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
 
 def patch_user_config(errors):
     uc = find_file("UserConfig.java")
@@ -315,30 +306,27 @@ def patch_user_config(errors):
         f'{indent}    android.content.SharedPreferences __p = org.telegram.messenger.MessagesController.getGlobalMainSettings();\n'
         f'{indent}    if (currentUser != null && __p.getBoolean("wery_visual_premium", false)) {{\n'
         f'{indent}        currentUser.premium = true;\n'
-        # emoji
         f'{indent}        if (currentUser.emoji_status instanceof org.telegram.tgnet.TLRPC.TL_emojiStatus) {{\n'
-        f'{indent}            long __curEid = ((org.telegram.tgnet.TLRPC.TL_emojiStatus)currentUser.emoji_status).document_id;\n'
-        f'{indent}            if (__curEid != 0) {{ __p.edit().putLong("wery_emoji_id",__curEid).apply(); }}\n'
-        f'{indent}            else {{ long __se=__p.getLong("wery_emoji_id",0); if(__se!=0)((org.telegram.tgnet.TLRPC.TL_emojiStatus)currentUser.emoji_status).document_id=__se; }}\n'
-        f'{indent}        }} else {{\n'
+        f'{indent}            long __curEid=((org.telegram.tgnet.TLRPC.TL_emojiStatus)currentUser.emoji_status).document_id;\n'
+        f'{indent}            if(__curEid!=0){{__p.edit().putLong("wery_emoji_id",__curEid).apply();}}\n'
+        f'{indent}            else{{long __se=__p.getLong("wery_emoji_id",0);if(__se!=0)((org.telegram.tgnet.TLRPC.TL_emojiStatus)currentUser.emoji_status).document_id=__se;}}\n'
+        f'{indent}        }}else{{\n'
         f'{indent}            long __se=__p.getLong("wery_emoji_id",0);\n'
         f'{indent}            if(__se!=0){{org.telegram.tgnet.TLRPC.TL_emojiStatus __es=new org.telegram.tgnet.TLRPC.TL_emojiStatus();__es.document_id=__se;currentUser.emoji_status=__es;}}\n'
         f'{indent}        }}\n'
-        # profile color
-        f'{indent}        if (currentUser.profile_color != null) {{\n'
-        f'{indent}            int __cc=currentUser.profile_color.color; long __ce=currentUser.profile_color.background_emoji_id;\n'
+        f'{indent}        if(currentUser.profile_color!=null){{\n'
+        f'{indent}            int __cc=currentUser.profile_color.color;long __ce=currentUser.profile_color.background_emoji_id;\n'
         f'{indent}            if(__cc>=0||__ce!=0){{__p.edit().putInt("wery_pcolor_id",__cc).putLong("wery_pcolor_emoji",__ce).apply();}}\n'
         f'{indent}            else{{int __sp=__p.getInt("wery_pcolor_id",-1);long __se=__p.getLong("wery_pcolor_emoji",0);if(__sp>=0)currentUser.profile_color.color=__sp;if(__se!=0)currentUser.profile_color.background_emoji_id=__se;}}\n'
-        f'{indent}        }} else {{\n'
+        f'{indent}        }}else{{\n'
         f'{indent}            int __sp=__p.getInt("wery_pcolor_id",-1);long __se=__p.getLong("wery_pcolor_emoji",0);\n'
         f'{indent}            if(__sp>=0||__se!=0){{currentUser.profile_color=new org.telegram.tgnet.TLRPC.TL_peerColor();if(__sp>=0)currentUser.profile_color.color=__sp;currentUser.profile_color.background_emoji_id=__se;}}\n'
         f'{indent}        }}\n'
-        # name color
-        f'{indent}        if (currentUser.color != null) {{\n'
+        f'{indent}        if(currentUser.color!=null){{\n'
         f'{indent}            int __nc=currentUser.color.color;long __ne=currentUser.color.background_emoji_id;\n'
         f'{indent}            if(__nc>=0||__ne!=0){{__p.edit().putInt("wery_color_id",__nc).putLong("wery_color_emoji",__ne).apply();}}\n'
         f'{indent}            else{{int __sc=__p.getInt("wery_color_id",-1);long __sce=__p.getLong("wery_color_emoji",0);if(__sc>=0)currentUser.color.color=__sc;if(__sce!=0)currentUser.color.background_emoji_id=__sce;}}\n'
-        f'{indent}        }} else {{\n'
+        f'{indent}        }}else{{\n'
         f'{indent}            int __sc=__p.getInt("wery_color_id",-1);long __sce=__p.getLong("wery_color_emoji",0);\n'
         f'{indent}            if(__sc>=0||__sce!=0){{currentUser.color=new org.telegram.tgnet.TLRPC.TL_peerColor();if(__sc>=0)currentUser.color.color=__sc;currentUser.color.background_emoji_id=__sce;}}\n'
         f'{indent}        }}\n'
@@ -355,25 +343,28 @@ def patch_messages_controller(errors):
     if not mc: print("✘ MessagesController.java not found", file=sys.stderr); return errors+1
     text = read(mc); modified = False
 
-    # Premium для себя
+    # Premium только для себя
     if 'wery_visual_premium' not in text:
-        variants = ["public TLRPC.User getUser(Long id) {","public TLRPC.User getUser(Long uid) {","public TLRPC.User getUser(Long javaLong) {"]
+        variants = ["public TLRPC.User getUser(Long id) {",
+                    "public TLRPC.User getUser(Long uid) {",
+                    "public TLRPC.User getUser(Long javaLong) {"]
         marker = next((v for v in variants if v in text), None)
         if marker:
             var = "id" if "Long id)" in marker else ("uid" if "Long uid)" in marker else "javaLong")
             ins = (
-                f"        if ({var}!=null && {var}.longValue()==UserConfig.getInstance(currentAccount).getClientUserId()\n"
+                f"        if({var}!=null && {var}.longValue()==UserConfig.getInstance(currentAccount).getClientUserId()\n"
                 f"            && org.telegram.messenger.MessagesController.getGlobalMainSettings().getBoolean(\"wery_visual_premium\",false)){{\n"
                 f"            org.telegram.tgnet.TLRPC.User __u=users.get({var});\n"
                 f"            if(__u!=null&&!__u.bot)__u.premium=true;\n"
                 f"        }}"
             )
-            text = text.replace(marker, marker+"\n"+ins, 1); modified = True
+            text = text.replace(marker, marker+"\n"+ins, 1); modified=True
             print("✔ MC: premium patch")
 
     # Верификация @werygram
     if 'wery_verified_ch' not in text:
-        chat_variants = ["public TLRPC.Chat getChat(Long id) {","public TLRPC.Chat getChat(Long chatId) {"]
+        chat_variants = ["public TLRPC.Chat getChat(Long id) {",
+                         "public TLRPC.Chat getChat(Long chatId) {"]
         cm = next((v for v in chat_variants if v in text), None)
         if cm:
             cvar = "id" if "Long id)" in cm else "chatId"
@@ -383,21 +374,24 @@ def patch_messages_controller(errors):
                 f"            if(__ch!=null&&\"werygram\".equals(__ch.username)){{__ch.verified=true;}} //wery_verified_ch\n"
                 f"        }}catch(Exception __ce){{}}"
             )
-            text = text.replace(cm, cm+"\n"+cins, 1); modified = True
+            text = text.replace(cm, cm+"\n"+cins, 1); modified=True
             print("✔ MC: @werygram verification patch")
         else:
             print("⚠ MC: getChat не найден")
 
     # Ghost mode — онлайн
     if 'wery_ghost_online' not in text:
-        for m in ["public void sendOnlineIfNeed() {","void sendOnlineIfNeed() {"]:
+        for m in ["public void sendOnlineIfNeed() {", "void sendOnlineIfNeed() {"]:
             if m in text:
-                text = text.replace(m, m+'\n        if(org.telegram.messenger.MessagesController.getGlobalMainSettings().getBoolean("wery_ghost_mode",false))return; //wery_ghost_online',1)
+                text = text.replace(m,
+                    m+'\n        if(org.telegram.messenger.MessagesController.getGlobalMainSettings().getBoolean("wery_ghost_mode",false))return; //wery_ghost_online',1)
                 modified=True; print("✔ Ghost: online patch"); break
 
     # Ghost mode — прочтение
     if 'wery_ghost_read' not in text:
-        for m in ["public void markDialogAsRead(","public void readMessages(","public void markMessagesAsRead("]:
+        for m in ["public void markDialogAsRead(",
+                  "public void readMessages(",
+                  "public void markMessagesAsRead("]:
             if m in text:
                 bp = text.find('{', text.find(m))
                 if bp != -1:
@@ -416,35 +410,46 @@ def patch_stars_controller(errors):
     if 'wery_deleted_gifts' in text: print("↩ skip StarsController"); return errors
     m = next((x for x in ["giftsLoaded = true;","this.giftsLoaded = true;"] if x in text), None)
     if m:
-        write(sc, text.replace(m, m+"\n        if(org.telegram.messenger.MessagesController.getGlobalMainSettings().getBoolean(\"wery_deleted_gifts\",false)){org.telegram.ui.WeryGramGifts.reset();org.telegram.ui.WeryGramGifts.injectDeletedGifts(currentAccount);} //wery_deleted_gifts",1))
+        write(sc, text.replace(m,
+            m+"\n        if(org.telegram.messenger.MessagesController.getGlobalMainSettings().getBoolean(\"wery_deleted_gifts\",false)){org.telegram.ui.WeryGramGifts.reset();org.telegram.ui.WeryGramGifts.injectDeletedGifts(currentAccount);} //wery_deleted_gifts",1))
         print("✔ StarsController: deleted gifts patch")
     else:
         print("⚠ StarsController: giftsLoaded marker не найден")
     return errors
 
 
-def patch_app_strings(errors):
-    """Заменяет 'Telegram' на 'WeryGram' в strings.xml."""
+def patch_app_name(errors):
+    """Заменяет AppName 'Telegram' -> 'WeryGram' только в главном strings.xml."""
+    candidates = [
+        os.path.join(ROOT, "TMessagesProj", "src", "main", "res", "values", "strings.xml"),
+        os.path.join(ROOT, "TMessagesProj", "src", "main", "res", "values-en", "strings.xml"),
+    ]
+    for path in candidates:
+        if not os.path.exists(path): continue
+        text = read(path)
+        if 'WeryGram' in text: print("↩ skip strings.xml"); return errors
+        new_text = re_mod.sub(
+            r'(<string name="AppName">)[^<]*(</string>)',
+            r'\1WeryGram\2', text)
+        if new_text != text:
+            write(path, new_text)
+            print("✔ AppName → WeryGram")
+            return errors
+    # Если не нашли по прямому пути — ищем
     res_base = os.path.join(ROOT, "TMessagesProj", "src", "main", "res")
-    if not os.path.isdir(res_base): return errors
-    patched = 0
-    for dp, dirs, files in os.walk(res_base):
+    for dp, _, files in os.walk(res_base):
         if 'strings.xml' not in files: continue
         path = os.path.join(dp, 'strings.xml')
         text = read(path)
-        if 'WeryGram' in text: continue
-        # Заменяем "Telegram" в значениях строк (между > и </string>)
+        if 'WeryGram' in text or 'AppName' not in text: continue
         new_text = re_mod.sub(
-            r'(>)([^<]*Telegram[^<]*)(</string>)',
-            lambda m: m.group(1) + m.group(2).replace('Telegram', 'WeryGram') + m.group(3),
-            text
-        )
+            r'(<string name="AppName">)[^<]*(</string>)',
+            r'\1WeryGram\2', text)
         if new_text != text:
-            write(path, new_text); patched += 1
-    if patched:
-        print(f"✔ strings.xml: заменено Telegram→WeryGram в {patched} файл(ах)")
-    else:
-        print("↩ strings.xml: нечего менять")
+            write(path, new_text)
+            print("✔ AppName → WeryGram")
+            return errors
+    print("⚠ AppName не найден в strings.xml")
     return errors
 
 
@@ -455,144 +460,54 @@ def main():
     errors = patch_user_config(errors)
     errors = patch_messages_controller(errors)
     errors = patch_stars_controller(errors)
-    errors = patch_app_strings(errors)
+    errors = patch_app_name(errors)
 
     sa = find_file("SettingsActivity.java")
     if not sa: print("✘ SettingsActivity.java not found", file=sys.stderr); sys.exit(1)
 
-    # ── import ────────────────────────────────────────────────────────────────
+    # import
     if not insert_before(sa, "import org.telegram.ui.Components.",
                          "import org.telegram.ui.WeryGramPremiumActivity;"): errors += 1
 
-    # ── Кнопка WeryGram в списке настроек ─────────────────────────────────────
+    # ── WeryGram кнопка — первой в списке настроек ────────────────────────────
+    fill_anchors = [
+        "void fillItems(ArrayList<UItem> items, UniversalAdapter adapter) {",
+        "public void fillItems(ArrayList<UItem> items, UniversalAdapter adapter) {",
+        "private void fillItems(ArrayList<UItem> items, UniversalAdapter adapter) {",
+    ]
     text = read(sa)
-    if 'UItem.asButton(1000' not in text:
-
-        # 1. Ищем fillItems через regex (любая видимость + вариации)
-        fill_m = re_mod.search(
-            r'((?:(?:public|private|protected)\s+)?void\s+fillItems\s*'
-            r'\(\s*ArrayList[^)]*\)\s*\{)',
-            text
-        )
-        if fill_m:
-            fill_marker = fill_m.group(1)
-            fm_pos      = text.find(fill_marker)
-            brace_pos   = text.find('{', fm_pos + len(fill_marker) - 1)
-            method_end  = find_method_end(text, brace_pos)
-            body        = text[brace_pos + 1 : method_end]
-
-            # Пропускаем служебные строки (тень, профиль, заголовок…)
-            _SKIP = ('asShadow', 'asProfile', 'asGraySection', 'asHeader',
-                     'asFlicker', 'asBig', 'asProfileCard', 'asUser')
-            target_line = None
-
-            # Стратегия A: первая items.add() после хотя бы одной служебной
-            found_service = False
-            for ln in body.split('\n'):
-                s = ln.strip()
-                if not s.startswith('items.add('): continue
-                if any(w in s for w in _SKIP):
-                    found_service = True
-                    continue
-                if found_service:
-                    target_line = ln
-                    break
-
-            # Стратегия Б: первая items.add() вообще, не-служебная
-            if not target_line:
-                for ln in body.split('\n'):
-                    s = ln.strip()
-                    if s.startswith('items.add(') and not any(w in s for w in _SKIP):
-                        target_line = ln
-                        break
-
-            # Стратегия В: ищем accountRow / notificationsRow / privacyRow
-            if not target_line:
-                row_kw = ('accountRow', 'notificationsRow', 'privacyRow',
-                          'chatRow', 'dataRow', 'settingsRow')
-                for ln in body.split('\n'):
-                    if 'items.add(' in ln and any(k in ln for k in row_kw):
-                        target_line = ln
-                        break
-
-            # Вставляем
-            if target_line and target_line in text:
-                indent   = target_line[:len(target_line) - len(target_line.lstrip())]
-                wery_btn = f'{indent}items.add(UItem.asButton(1000, R.drawable.msg_settings, "WeryGram"));'
-                write(sa, text.replace(target_line, wery_btn + '\n' + target_line, 1))
-                print("✔ SA: WeryGram button вставлена перед первым пунктом настроек")
-            else:
-                # Fallback: самое начало тела fillItems
-                write(sa, text.replace(
-                    fill_marker,
-                    fill_marker + '\n        items.add(0, UItem.asButton(1000, R.drawable.msg_settings, "WeryGram"));',
-                    1))
-                print("✔ SA: WeryGram button вставлена в начало fillItems (fallback)")
-        else:
-            print("✘ fillItems не найден в SettingsActivity", file=sys.stderr)
-            errors += 1
-    else:
-        print("↩ skip WeryGram button (already patched)")
-
-    # ── Обработчик клика ──────────────────────────────────────────────────────
-    text = read(sa)
-    if 'item.id == 1000' not in text:
-
-        # Варианты сигнатур onItemClick / onClick с UItem
-        click_anchors = [
-            "void onItemClick(UItem item, View view, int position, float x, float y) {",
-            "public void onItemClick(UItem item, View view, int position, float x, float y) {",
-            "private void onItemClick(UItem item, View view, int position, float x, float y) {",
-            "protected void onItemClick(UItem item, View view, int position, float x, float y) {",
-            "void onItemClick(UItem item, View view, int position) {",
-            "public void onItemClick(UItem item, View view, int position) {",
-            "private void onItemClick(UItem item, View view, int position) {",
-            "private void onClick(UItem item, View view, int position, float x, float y) {",
-            "void onClick(UItem item, View view, int position, float x, float y) {",
-            "public void onClick(UItem item, View view, int position, float x, float y) {",
-            "void onClick(UItem item) {",
-            "public void onClick(UItem item) {",
-            "private void onClick(UItem item) {",
-        ]
-        click_anchor = next((a for a in click_anchors if a in text), None)
-
-        if click_anchor:
-            if not insert_after(sa, click_anchor,
-                    '        if (item.id == 1000) { presentFragment(new WeryGramPremiumActivity()); return; }'):
+    fill_anchor = next((a for a in fill_anchors if a in text), None)
+    if fill_anchor:
+        if 'UItem.asButton(1000' not in text:
+            if not insert_after(sa, fill_anchor,
+                '        items.add(0, UItem.asButton(1000, R.drawable.msg_settings, "WeryGram"));'):
                 errors += 1
         else:
-            # Lambda / анонимный listener
-            lambda_anchors = [
-                ".setOnItemClickListener((item, view, position, x, y) -> {",
-                ".setOnClickListener((item, view, position, x, y) -> {",
-                "onItemClickListener = (item, view, position, x, y) -> {",
-                ".setOnItemClickListener((item, view, pos, x, y) -> {",
-            ]
-            la = next((a for a in lambda_anchors if a in text), None)
-            if la:
-                if not insert_after(sa, la,
-                        '            if (item.id == 1000) { presentFragment(new WeryGramPremiumActivity()); return; }'):
-                    errors += 1
-            else:
-                # Regex — любой метод с UItem в параметрах
-                cm = re_mod.search(
-                    r'((?:(?:public|private|protected)\s+)?void\s+'
-                    r'(?:onItemClick|onClick)\s*\([^)]*UItem[^)]*\)\s*\{)',
-                    text
-                )
-                if cm:
-                    if not insert_after(sa, cm.group(1),
-                            '        if (item.id == 1000) { presentFragment(new WeryGramPremiumActivity()); return; }'):
-                        errors += 1
-                else:
-                    print("✘ onClick не найден в SettingsActivity — добавь вручную:", file=sys.stderr)
-                    print('  if (item.id == 1000) { presentFragment(new WeryGramPremiumActivity()); return; }',
-                          file=sys.stderr)
-                    errors += 1
+            print("↩ skip fillItems")
     else:
-        print("↩ skip click handler (already patched)")
+        print("✘ fillItems не найден", file=sys.stderr); errors += 1
 
-    # ── Создаём Java-файлы ────────────────────────────────────────────────────
+    # ── Обработчик клика ──────────────────────────────────────────────────────
+    click_anchors = [
+        "void onItemClick(UItem item, View view, int position, float x, float y) {",
+        "public void onItemClick(UItem item, View view, int position, float x, float y) {",
+        "private void onItemClick(UItem item, View view, int position, float x, float y) {",
+        "private void onClick(UItem item, View view, int position, float x, float y) {",
+        "void onClick(UItem item, View view, int position, float x, float y) {",
+        "public void onClick(UItem item, View view, int position, float x, float y) {",
+        "void onClick(UItem item) {",
+        "public void onClick(UItem item) {",
+        "private void onClick(UItem item) {",
+    ]
+    click_anchor = next((a for a in click_anchors if a in read(sa)), None)
+    if click_anchor:
+        if not insert_after(sa, click_anchor,
+            '        if (item.id == 1000) { presentFragment(new WeryGramPremiumActivity()); return; }'):
+            errors += 1
+    else:
+        print("✘ onClick не найден", file=sys.stderr); errors += 1
+
+    # ── Java файлы ────────────────────────────────────────────────────────────
     ui_dir = os.path.dirname(sa)
     for fname, content in [
         ("WeryGramPremiumActivity.java", ACTIVITY),
