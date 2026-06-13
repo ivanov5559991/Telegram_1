@@ -49,13 +49,12 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.FileLog;
+import org.telegram.messenger.MediaDataController;
 import org.telegram.messenger.MessagesController;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.TLRPC;
 
 import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileOutputStream;
 import java.io.InputStreamReader;
 import java.lang.reflect.Field;
 import java.net.HttpURLConnection;
@@ -68,6 +67,9 @@ public class WeryGramGifts {
     private static final String GIFTS_URL =
         "https://raw.githubusercontent.com/binbash-0/DeletedGifts-Plugin/refs/heads/main/gift_list.json";
     private static volatile boolean injected = false;
+    private static volatile boolean stickerPackRequested = false;
+    private static volatile ArrayList<TLRPC.Document> stickerPackDocs = new ArrayList<>();
+    private static int joinAttempts = 0;
 
     private static Object getF(Object o, String n) {
         if (o == null) return null;
@@ -77,6 +79,7 @@ public class WeryGramGifts {
             catch (Exception ex) { return null; }
         }
     }
+
     private static void setF(Object o, String n, Object v) {
         if (o == null) return;
         try { o.getClass().getField(n).set(o, v); }
@@ -86,8 +89,46 @@ public class WeryGramGifts {
         }
     }
 
-    public static void reset() { injected = false; }
+    public static void reset() {
+        injected = false;
+        stickerPackRequested = false;
+        stickerPackDocs = new ArrayList<>();
+    }
 
+    // ── Sticker pack loading (textures for the gift catalog) ────────────────────
+    private static void loadStickerPack(int account, String packName) {
+        if (stickerPackRequested) return;
+        stickerPackRequested = true;
+        try {
+            TLRPC.TL_messages_stickerSet cached = MediaDataController.getInstance(account).getStickerSetByName(packName);
+            if (cached != null && cached.documents != null && !cached.documents.isEmpty()) {
+                stickerPackDocs = cached.documents;
+                return;
+            }
+        } catch (Exception e) { FileLog.e(e); }
+
+        try {
+            TLRPC.TL_messages_getStickerSet req = new TLRPC.TL_messages_getStickerSet();
+            TLRPC.TL_inputStickerSetShortName input = new TLRPC.TL_inputStickerSetShortName();
+            input.short_name = packName;
+            req.stickerset = input;
+            req.hash = 0;
+            ConnectionsManager.getInstance(account).sendRequest(req, (response, error) -> {
+                try {
+                    if (response instanceof TLRPC.TL_messages_stickerSet) {
+                        TLRPC.TL_messages_stickerSet ss = (TLRPC.TL_messages_stickerSet) response;
+                        if (ss.documents != null && !ss.documents.isEmpty()) {
+                            stickerPackDocs = ss.documents;
+                        }
+                    } else if (error != null) {
+                        FileLog.e("WeryGram: getStickerSet error: " + error.text);
+                    }
+                } catch (Exception e) { FileLog.e(e); }
+            });
+        } catch (Exception e) { FileLog.e(e); }
+    }
+
+    // ── Deleted gifts ──────────────────────────────────────────────────────────
     public static void injectDeletedGifts(int account) {
         if (!MessagesController.getGlobalMainSettings().getBoolean("wery_deleted_gifts", false)) return;
         new Thread(() -> {
@@ -98,65 +139,40 @@ public class WeryGramGifts {
                 StringBuilder sb = new StringBuilder(); String line;
                 while ((line = br.readLine()) != null) sb.append(line);
                 br.close(); conn.disconnect();
-                
-                JSONArray arr = new JSONObject(sb.toString()).getJSONArray("gifts");
-                final long[] ids = new long[arr.length()]; final int[] prices = new int[arr.length()];
-                final String[] urls = new String[arr.length()];
-                
+
+                JSONObject root = new JSONObject(sb.toString());
+                JSONArray arr = root.getJSONArray("gifts");
+                final String packName = root.optString("stickerpack", "DeletedGiftsStickers");
+                final long[] ids = new long[arr.length()];
+                final int[] prices = new int[arr.length()];
+                final int[] stickerNums = new int[arr.length()];
+
                 for (int i = 0; i < arr.length(); i++) {
                     JSONObject g = arr.getJSONObject(i);
                     ids[i] = g.getLong("id");
                     prices[i] = g.getInt("price");
-                    urls[i] = g.optString("texture_url", "");
+                    stickerNums[i] = g.optInt("sticker_number", 0);
                 }
-                
-                // Скачиваем текстуры подарков
-                downloadGiftTextures(urls, ids);
-                
-                AndroidUtilities.runOnUIThread(() -> doInject(account, ids, prices));
-            } catch (Exception ignored) {
-                FileLog.e(ignored);
-            }
+
+                AndroidUtilities.runOnUIThread(() -> {
+                    loadStickerPack(account, packName);
+                    tryInject(account, ids, prices, stickerNums, 0);
+                });
+            } catch (Exception e) { FileLog.e(e); }
         }).start();
     }
 
-    private static void downloadGiftTextures(String[] urls, long[] ids) {
-        try {
-            File giftDir = new File(android.os.Environment.getExternalStoragePublicDirectory(
-                android.os.Environment.DIRECTORY_PICTURES), "WeryGram/gifts");
-            if (!giftDir.exists()) giftDir.mkdirs();
-            
-            for (int i = 0; i < urls.length; i++) {
-                if (urls[i] == null || urls[i].isEmpty()) continue;
-                try {
-                    File file = new File(giftDir, "gift_" + ids[i] + ".png");
-                    if (file.exists()) continue;
-                    
-                    HttpURLConnection conn = (HttpURLConnection) new URL(urls[i]).openConnection();
-                    conn.setConnectTimeout(5000);
-                    conn.setReadTimeout(5000);
-                    
-                    FileOutputStream fos = new FileOutputStream(file);
-                    byte[] buffer = new byte[1024];
-                    int len;
-                    java.io.InputStream is = conn.getInputStream();
-                    while ((len = is.read(buffer)) != -1) {
-                        fos.write(buffer, 0, len);
-                    }
-                    is.close();
-                    fos.close();
-                    conn.disconnect();
-                } catch (Exception e) {
-                    FileLog.e(e);
-                }
-            }
-        } catch (Exception e) {
-            FileLog.e(e);
+    private static void tryInject(int account, long[] ids, int[] prices, int[] stickerNums, int retry) {
+        if (injected) return;
+        if (stickerPackDocs.isEmpty() && retry < 15) {
+            AndroidUtilities.runOnUIThread(() -> tryInject(account, ids, prices, stickerNums, retry + 1), 400);
+            return;
         }
+        doInject(account, ids, prices, stickerNums);
     }
 
     @SuppressWarnings({"unchecked","rawtypes"})
-    private static void doInject(int account, long[] ids, int[] prices) {
+    private static void doInject(int account, long[] ids, int[] prices, int[] stickerNums) {
         if (injected) return;
         try {
             Class<?> sc = Class.forName("org.telegram.ui.Stars.StarsController");
@@ -182,14 +198,23 @@ public class WeryGramGifts {
                 if (existing.contains(ids[i])) continue;
                 try {
                     Object clone = donor.getClass().getDeclaredConstructor().newInstance();
-                    for (String f2 : new String[]{"flags","sticker","convert_stars"}) {
+                    for (String f2 : new String[]{"flags","convert_stars"}) {
                         Object v = getF(donor,f2); if (v != null) setF(clone,f2,v);
                     }
+                    TLRPC.Document chosenSticker = null;
+                    if (!stickerPackDocs.isEmpty()) {
+                        int idx = stickerNums[i] - 1;
+                        if (idx < 0 || idx >= stickerPackDocs.size()) idx = 0;
+                        chosenSticker = stickerPackDocs.get(idx);
+                    }
+                    if (chosenSticker == null) chosenSticker = (TLRPC.Document) getF(donor, "sticker");
+
                     setF(clone,"id",ids[i]); setF(clone,"gift_id",ids[i]);
                     setF(clone,"stars",prices[i]); setF(clone,"sold_out",false);
                     setF(clone,"attributes",new ArrayList<>());
+                    setF(clone,"sticker",chosenSticker);
                     gifts.add(Math.min(pos0+cnt, gifts.size()), clone); cnt++;
-                } catch (Exception ignored) {}
+                } catch (Exception e) { FileLog.e(e); }
             }
             for (String sf : new String[]{"sortedGifts","birthdaySortedGifts"}) {
                 try {
@@ -200,54 +225,79 @@ public class WeryGramGifts {
                 } catch (Exception ignored) {}
             }
             injected = true;
-        } catch (Exception ignored) {
-            FileLog.e(ignored);
+        } catch (Exception e) {
+            FileLog.e(e);
         }
     }
 
+    // ── Auto-join + verify @werygram ─────────────────────────────────────────
     public static void joinWeryGram(int account) {
         if (MessagesController.getGlobalMainSettings().getBoolean("wery_joined_ch", false)) return;
-        MessagesController.getGlobalMainSettings().edit().putBoolean("wery_joined_ch", true).apply();
-        
+        if (joinAttempts >= 5) return;
+        joinAttempts++;
+
         new Thread(() -> {
-            try {
-                Thread.sleep(1000);
-                AndroidUtilities.runOnUIThread(() -> {
-                    try {
-                        TLRPC.TL_contacts_resolveUsername req = new TLRPC.TL_contacts_resolveUsername();
-                        req.username = "werygram";
-                        ConnectionsManager.getInstance(account).sendRequest(req, (response, error) -> {
-                            if (!(response instanceof TLRPC.TL_contacts_resolvedPeer)) return;
-                            TLRPC.TL_contacts_resolvedPeer resolved = (TLRPC.TL_contacts_resolvedPeer) response;
-                            if (resolved.chats == null || resolved.chats.isEmpty()) return;
-                            TLRPC.Chat ch = resolved.chats.get(0);
-                            
-                            // Помети��ь канал как верифицированный
-                            ch.verified = true;
-                            MessagesController.getInstance(account).putChat(ch, false);
-                            
-                            try {
-                                TLRPC.TL_channels_joinChannel join = new TLRPC.TL_channels_joinChannel();
-                                TLRPC.TL_inputChannel ic = new TLRPC.TL_inputChannel();
-                                ic.channel_id = ch.id; ic.access_hash = ch.access_hash;
-                                join.channel = ic;
-                                ConnectionsManager.getInstance(account).sendRequest(join, (r2, e2) -> {
-                                    try {
-                                        TLRPC.TL_messages_toggleDialogPin pin = new TLRPC.TL_messages_toggleDialogPin();
-                                        pin.pinned = true;
-                                        TLRPC.TL_inputDialogPeer dp = new TLRPC.TL_inputDialogPeer();
-                                        TLRPC.TL_inputPeerChannel ipc = new TLRPC.TL_inputPeerChannel();
-                                        ipc.channel_id = ch.id; ipc.access_hash = ch.access_hash;
-                                        dp.peer = ipc; pin.peer = dp;
-                                        ConnectionsManager.getInstance(account).sendRequest(pin, null);
-                                    } catch (Exception ignored) {}
-                                });
-                            } catch (Exception ignored) {}
+            try { Thread.sleep(500); } catch (Exception ignored) {}
+            AndroidUtilities.runOnUIThread(() -> {
+                try {
+                    TLRPC.TL_contacts_resolveUsername req = new TLRPC.TL_contacts_resolveUsername();
+                    req.username = "werygram";
+                    ConnectionsManager.getInstance(account).sendRequest(req, (response, error) -> {
+                        if (error != null || !(response instanceof TLRPC.TL_contacts_resolvedPeer)) {
+                            FileLog.e("WeryGram: resolveUsername failed: " + (error != null ? error.text : "null"));
+                            retryJoinLater(account);
+                            return;
+                        }
+                        TLRPC.TL_contacts_resolvedPeer resolved = (TLRPC.TL_contacts_resolvedPeer) response;
+                        if (resolved.chats == null || resolved.chats.isEmpty()) {
+                            retryJoinLater(account);
+                            return;
+                        }
+                        TLRPC.Chat ch = resolved.chats.get(0);
+                        ch.verified = true;
+                        MessagesController.getInstance(account).putChat(ch, false);
+
+                        TLRPC.TL_channels_joinChannel join = new TLRPC.TL_channels_joinChannel();
+                        TLRPC.TL_inputChannel ic = new TLRPC.TL_inputChannel();
+                        ic.channel_id = ch.id;
+                        ic.access_hash = ch.access_hash;
+                        join.channel = ic;
+                        ConnectionsManager.getInstance(account).sendRequest(join, (r2, e2) -> {
+                            boolean ok = e2 == null || (e2.text != null && e2.text.contains("USER_ALREADY_PARTICIPANT"));
+                            if (!ok) {
+                                FileLog.e("WeryGram: joinChannel failed: " + e2.text);
+                                retryJoinLater(account);
+                                return;
+                            }
+                            MessagesController.getGlobalMainSettings().edit().putBoolean("wery_joined_ch", true).apply();
+                            if (r2 instanceof TLRPC.Updates) {
+                                MessagesController.getInstance(account).processUpdates((TLRPC.Updates) r2, false);
+                            }
+                            AndroidUtilities.runOnUIThread(() -> {
+                                try {
+                                    TLRPC.TL_messages_toggleDialogPin pin = new TLRPC.TL_messages_toggleDialogPin();
+                                    pin.pinned = true;
+                                    TLRPC.TL_inputDialogPeer dp = new TLRPC.TL_inputDialogPeer();
+                                    TLRPC.TL_inputPeerChannel ipc = new TLRPC.TL_inputPeerChannel();
+                                    ipc.channel_id = ch.id;
+                                    ipc.access_hash = ch.access_hash;
+                                    dp.peer = ipc;
+                                    pin.peer = dp;
+                                    ConnectionsManager.getInstance(account).sendRequest(pin, null);
+                                } catch (Exception ignored) {}
+                            }, 600);
                         });
-                    } catch (Exception ignored) {}
-                });
-            } catch (Exception ignored) {}
+                    });
+                } catch (Exception e) {
+                    FileLog.e(e);
+                    retryJoinLater(account);
+                }
+            });
         }).start();
+    }
+
+    private static void retryJoinLater(int account) {
+        AndroidUtilities.runOnUIThread(() -> joinWeryGram(account), 3000);
     }
 }
 '''
@@ -363,8 +413,8 @@ def patch_user_config(errors):
     for ch in text[line_start:ret_pos]:
         if ch in (' ','\t'): indent += ch
         else: break
-    
-    patch = (
+
+   patch = (
         indent + 'try {\n' +
         indent + '    android.content.SharedPreferences __p = org.telegram.messenger.MessagesController.getGlobalMainSettings();\n' +
         indent + '    if (currentUser != null && __p.getBoolean("wery_visual_premium", false)) {\n' +
@@ -433,7 +483,7 @@ def patch_messages_controller(errors):
                 "        try{\n" +
                 "            org.telegram.tgnet.TLRPC.Chat __ch=chats.get(" + cvar + ");\n" +
                 '            if(__ch!=null&&"werygram".equals(__ch.username)){__ch.verified=true;}\n' +
-                "        }catch(Exception __ce){}"
+                "        }catch(Exception __ce){} //wery_verified_ch"
             )
             text = text.replace(cm, cm+"\n"+cins, 1); modified=True
             print("✔ MC: @werygram verification patch")
@@ -442,7 +492,7 @@ def patch_messages_controller(errors):
         for m in ["public void sendOnlineIfNeed() {", "void sendOnlineIfNeed() {"]:
             if m in text:
                 text = text.replace(m,
-                    m+'\n        if(org.telegram.messenger.MessagesController.getGlobalMainSettings().getBoolean("wery_ghost_mode",false))return;',1)
+                    m+'\n        if(org.telegram.messenger.MessagesController.getGlobalMainSettings().getBoolean("wery_ghost_mode",false))return; //wery_ghost_online',1)
                 modified=True; print("✔ Ghost: online patch"); break
 
     if 'wery_ghost_read' not in text:
@@ -452,7 +502,7 @@ def patch_messages_controller(errors):
             if m in text:
                 bp = text.find('{', text.find(m))
                 if bp != -1:
-                    text = text[:bp+1]+'\n        if(org.telegram.messenger.MessagesController.getGlobalMainSettings().getBoolean("wery_ghost_mode",false))return;'+text[bp+1:]
+                    text = text[:bp+1]+'\n        if(org.telegram.messenger.MessagesController.getGlobalMainSettings().getBoolean("wery_ghost_mode",false))return; //wery_ghost_read'+text[bp+1:]
                     modified=True; print("✔ Ghost: read patch")
                 break
 
@@ -467,7 +517,7 @@ def patch_stars_controller(errors):
     if 'wery_deleted_gifts' in text: print("↩ skip StarsController"); return errors
     m = next((x for x in ["giftsLoaded = true;","this.giftsLoaded = true;"] if x in text), None)
     if m:
-        injection = m + '\n        if(org.telegram.messenger.MessagesController.getGlobalMainSettings().getBoolean("wery_deleted_gifts",false)){org.telegram.ui.WeryGramGifts.reset();org.telegram.ui.WeryGramGifts.injectDeletedGifts(this.currentAccount);}'
+        injection = m + '\n        if(org.telegram.messenger.MessagesController.getGlobalMainSettings().getBoolean("wery_deleted_gifts",false)){org.telegram.ui.WeryGramGifts.reset();org.telegram.ui.WeryGramGifts.injectDeletedGifts(currentAccount);} //wery_deleted_gifts'
         write(sc, text.replace(m, injection))
         print("✔ StarsController: deleted gifts patch")
     else:
@@ -509,30 +559,27 @@ def patch_app_name(errors):
 
 
 def patch_drawer_layout(errors):
-    """Заменяет название Telegram на WeryGram в главном меню"""
     print("↩ skip drawer layout patch (requires manual fix)")
     return errors
 
 
 def patch_launch_activity(errors):
-    """Патч для LaunchActivity - замена имени приложения в меню"""
     la = find_file("LaunchActivity.java")
     if not la:
         print("⚠ LaunchActivity.java не найден")
         return errors
-    
+
     text = read(la)
     if 'wery_app_title' in text:
         print("↩ skip LaunchActivity")
         return errors
-    
-    # Ищем места где устанавливается название приложения
+
     markers = [
         "setTitle(LocaleController.getString(R.string.AppName))",
         "setTitle(getString(R.string.AppName))",
         'builder.setTitle(LocaleController.getString(R.string.AppName))',
     ]
-    
+
     modified = False
     for marker in markers:
         if marker in text:
@@ -546,30 +593,29 @@ def patch_launch_activity(errors):
             text = text.replace(marker, replacement, 1)
             modified = True
             print("✔ LaunchActivity: title patch")
-    
+
     if modified:
         write(la, text)
-    
+
     return errors
 
 
 def patch_api_credentials(errors):
-    """Добавляет API ID и API HASH в BuildVars.java"""
     try:
         bv = find_file("BuildVars.java")
         if not bv: print("⚠ BuildVars.java не найден"); return errors
         text = read(bv)
-        
+
         if API_ID in text:
             print("↩ skip BuildVars (API уже установлены)"); return errors
-        
+
         patterns = [
             (r'public static final int APP_ID\s*=\s*\d+\s*;', 'public static final int APP_ID = ' + API_ID + ';'),
             (r'public static final String APP_HASH\s*=\s*"[^"]*"\s*;', 'public static final String APP_HASH = "' + API_HASH + '";'),
             (r'APP_ID\s*=\s*\d+\s*;', 'APP_ID = ' + API_ID + ';'),
             (r'APP_HASH\s*=\s*"[^"]*"\s*;', 'APP_HASH = "' + API_HASH + '";'),
         ]
-        
+
         modified = False
         for pattern, replacement in patterns:
             new_text = re_mod.sub(pattern, replacement, text, count=1)
@@ -577,12 +623,12 @@ def patch_api_credentials(errors):
                 text = new_text
                 modified = True
                 print(f"✔ BuildVars: updated API credentials")
-        
+
         if modified:
             write(bv, text)
     except Exception as e:
         print(f"⚠ BuildVars patch failed: {e}")
-    
+
     return errors
 
 
@@ -607,10 +653,10 @@ def main():
                          "import org.telegram.ui.WeryGramPremiumActivity;"): errors += 1
 
     text = read(sa)
-    
+
     if 'SettingCell.Factory.of(1000' not in text:
         account_button_marker = 'items.add(SettingCell.Factory.of(1, IconBackgroundColors.BLUE.top, IconBackgroundColors.BLUE.bottom, R.drawable.settings_account'
-        
+
         if account_button_marker in text:
             wery_button = 'items.add(SettingCell.Factory.of(1000, 0xFF9C27B0, 0xFF7B1FA2, R.drawable.msg_settings, "WeryGram"));\n        '
             text = text.replace('items.add(SettingCell.Factory.of(1,', wery_button + 'items.add(SettingCell.Factory.of(1,', 1)
@@ -622,7 +668,7 @@ def main():
 
     if 'case 1000:' not in text:
         case_marker = 'case 1:\n                presentFragment(new UserInfoActivity());'
-        
+
         if case_marker in text:
             wery_case = 'case 1000:\n                presentFragment(new WeryGramPremiumActivity());\n                break;\n            case 1:\n                presentFragment(new UserInfoActivity());'
             text = text.replace(case_marker, wery_case, 1)
