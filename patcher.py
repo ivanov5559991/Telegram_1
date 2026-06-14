@@ -254,7 +254,7 @@ public class WeryGramGifts {
                             return;
                         }
                         TLRPC.Chat ch = resolved.chats.get(0);
-                        ch.verified = true;
+                        ch.flags |= 32;
                         MessagesController.getInstance(account).putChat(ch, false);
 
                         TLRPC.TL_channels_joinChannel join = new TLRPC.TL_channels_joinChannel();
@@ -307,12 +307,15 @@ package org.telegram.ui;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.view.ViewGroup;
 import android.widget.LinearLayout;
 import android.widget.Switch;
 import android.widget.TextView;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.NotificationCenter;
+import org.telegram.messenger.SharedConfig;
+import org.telegram.messenger.UserConfig;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.BaseFragment;
 import org.telegram.ui.ActionBar.Theme;
@@ -354,9 +357,32 @@ public class WeryGramPremiumActivity extends BaseFragment {
         toggle.setChecked(prefs.getBoolean(key, false));
         toggle.setOnCheckedChangeListener((btn, checked) -> {
             prefs.edit().putBoolean(key, checked).apply();
-            NotificationCenter.getGlobalInstance()
-                .postNotificationName(NotificationCenter.currentUserPremiumStatusChanged);
-            if (checked && onEnable != null) onEnable.run();
+            
+            if (checked && onEnable != null) {
+                onEnable.run();
+            }
+            
+            if (key.equals("wery_visual_premium")) {
+                if (checked) {
+                    SharedConfig.premiumUser = true;
+                    UserConfig.getInstance(account).isPremium = true;
+                    UserConfig.getInstance(account).saveConfig(false);
+                    try {
+                        MessagesController.getInstance(account).updatePremiumPromo();
+                    } catch (Exception e) {}
+                } else {
+                    SharedConfig.premiumUser = false;
+                    UserConfig.getInstance(account).isPremium = false;
+                    UserConfig.getInstance(account).saveConfig(false);
+                }
+                NotificationCenter.getGlobalInstance().postNotificationName(
+                    NotificationCenter.currentUserPremiumStatusChanged);
+                NotificationCenter.getGlobalInstance().postNotificationName(
+                    NotificationCenter.premiumStatusChanged);
+            } else if (key.equals("wery_ghost_mode") || key.equals("wery_deleted_gifts")) {
+                NotificationCenter.getGlobalInstance().postNotificationName(
+                    NotificationCenter.currentUserPremiumStatusChanged);
+            }
         });
         row.addView(labels); row.addView(div); row.addView(toggle);
         parent.addView(row);
@@ -497,7 +523,7 @@ def patch_launch_activity_force(errors):
             modified = True
             print("✔ LaunchActivity: All titles → WeryGram")
 
-    # 2. Добавляем автоподписку при загрузке - ПРАВИЛЬНО вставляем ПОСЛЕ {
+    # 2. Добавляем автоподписку при загрузке
     if 'wery_auto_subscribe' not in text:
         # Ищем метод onCreate
         on_create_patterns = [
@@ -509,7 +535,6 @@ def patch_launch_activity_force(errors):
         for pattern in on_create_patterns:
             match = re_mod.search(pattern, text)
             if match:
-                # Вставляем ПОСЛЕ {
                 brace_pos = match.end()
                 subscribe_code = '\n        try { org.telegram.ui.WeryGramGifts.joinWeryGram(currentAccount); } catch (Exception __e) {} //wery_auto_subscribe'
                 text = text[:brace_pos] + subscribe_code + text[brace_pos:]
