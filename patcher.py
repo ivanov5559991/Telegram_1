@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os, sys, re as re_mod
+import urllib.request
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 SRC  = os.path.join(ROOT, "TMessagesProj", "src", "main", "java")
@@ -274,7 +275,6 @@ public class WeryGramGifts {
 }
 '''
 
-# ── ACTIVITY — убраны несуществующие поля SharedConfig/UserConfig ─────────────
 ACTIVITY = '''\
 package org.telegram.ui;
 
@@ -388,7 +388,7 @@ def patch_user_config(errors):
         if ch in (' ','\t'): indent += ch
         else: break
     patch = (
-        indent + 'try {\n' +
+indent + 'try {\n' +
         indent + '    android.content.SharedPreferences __p = org.telegram.messenger.MessagesController.getGlobalMainSettings();\n' +
         indent + '    if (currentUser != null && __p.getBoolean("wery_visual_premium", false)) {\n' +
         indent + '        currentUser.premium = true;\n' +
@@ -499,7 +499,6 @@ def patch_stars_controller(errors):
 
 
 def patch_launch_activity(errors):
-    """Авто-подписка на @werygram, закреп и верификация при старте приложения."""
     la = find_file("LaunchActivity.java")
     if not la:
         print("⚠ LaunchActivity.java не найден, пробуем ApplicationLoader.java")
@@ -529,7 +528,6 @@ def patch_launch_activity(errors):
         if idx == -1: continue
         brace = text.find('{', idx)
         if brace == -1: continue
-        # Предпочтительно — вставить после super.onCreate(...)
         super_idx = text.find('super.onCreate(', brace)
         if super_idx != -1 and super_idx < brace + 600:
             semi = text.find(';', super_idx)
@@ -538,7 +536,6 @@ def patch_launch_activity(errors):
                 write(la, text)
                 print("✔ LaunchActivity: авто-подписка @werygram при старте")
                 return errors
-        # Fallback — прямо после открывающей скобки onCreate
         text = text[:brace+1] + '\n' + injection + text[brace+1:]
         write(la, text)
         print("✔ LaunchActivity: авто-подписка @werygram при старте (fallback)")
@@ -549,27 +546,79 @@ def patch_launch_activity(errors):
 
 
 def patch_app_name(errors):
-    candidates = [
-        os.path.join(ROOT, "TMessagesProj", "src", "main", "res", "values", "strings.xml"),
-        os.path.join(ROOT, "TMessagesProj", "src", "main", "res", "values-en", "strings.xml"),
-    ]
-    for path in candidates:
-        if not os.path.exists(path): continue
-        text = read(path)
-        if 'WeryGram' in text: print("↩ skip strings.xml"); return errors
-        new_text = re_mod.sub(r'(<string name="AppName">)[^<]*(</string>)', r'\1WeryGram\2', text)
-        if new_text != text:
-            write(path, new_text); print("✔ AppName → WeryGram"); return errors
     res_base = os.path.join(ROOT, "TMessagesProj", "src", "main", "res")
+    if not os.path.exists(res_base): return errors
     for dp, _, files in os.walk(res_base):
         if 'strings.xml' not in files: continue
         path = os.path.join(dp, 'strings.xml')
         text = read(path)
-        if 'WeryGram' in text or 'AppName' not in text: continue
-        new_text = re_mod.sub(r'(<string name="AppName">)[^<]*(</string>)', r'\1WeryGram\2', text)
+        new_text = text
+        # Заменяем на Werygram без Beta
+        new_text = re_mod.sub(r'(<string name="AppName">)[^<]*(</string>)', r'\1Werygram\2', new_text)
+        new_text = re_mod.sub(r'(<string name="AppNameBeta">)[^<]*(</string>)', r'\1Werygram\2', new_text)
         if new_text != text:
-            write(path, new_text); print("✔ AppName → WeryGram"); return errors
-    print("⚠ AppName не найден в strings.xml")
+            write(path, new_text)
+            print(f"✔ AppName → Werygram в {os.path.relpath(path, ROOT)}")
+    return errors
+
+
+def patch_package_name(errors):
+    gradle_path = os.path.join(ROOT, "TMessagesProj", "build.gradle")
+    if not os.path.exists(gradle_path):
+        print("⚠ build.gradle не найден, невозможно изменить Package Name")
+        return errors
+    text = read(gradle_path)
+    new_text = re_mod.sub(r'applicationId\s+"[^"]+"', 'applicationId "com.werygram.messenger"', text)
+    if new_text != text:
+        write(gradle_path, new_text)
+        print("✔ Package name (applicationId) → com.werygram.messenger")
+    return errors
+
+
+def patch_app_icon(errors):
+    try:
+        # Скачиваем страницу IBB для поиска прямой ссылки
+        req = urllib.request.Request("https://ibb.co/Zz5NPS2d", headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req) as response:
+            html = response.read().decode('utf-8')
+        
+        # Находим прямую ссылку на картинку в мета-тегах
+        match = re_mod.search(r'<meta property="og:image" content="(https://i\.ibb\.co/[^"]+)"', html)
+        if not match:
+            print("⚠ Не удалось найти прямую ссылку на аватарку")
+            return errors
+        
+        img_url = match.group(1)
+        print(f"⬇ Скачивание аватарки: {img_url}")
+        
+        req_img = urllib.request.Request(img_url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req_img) as response:
+            img_data = response.read()
+        
+        res_dir = os.path.join(ROOT, "TMessagesProj", "src", "main", "res")
+        if not os.path.exists(res_dir): 
+            print("⚠ Папка res не найдена для замены иконок")
+            return errors
+        
+        # Перебираем все папки mipmap/drawable и перезаписываем иконки
+        replaced = 0
+        for folder in os.listdir(res_dir):
+            if folder.startswith("mipmap") or folder.startswith("drawable"):
+                folder_path = os.path.join(res_dir, folder)
+                if os.path.isdir(folder_path):
+                    for icon_name in ["ic_launcher.png", "ic_launcher_round.png", "icon.png"]:
+                        icon_path = os.path.join(folder_path, icon_name)
+                        if os.path.exists(icon_path):
+                            with open(icon_path, "wb") as f:
+                                f.write(img_data)
+                            replaced += 1
+        
+        if replaced > 0:
+            print(f"✔ Аватарка заменена (обновлено {replaced} файлов)")
+        else:
+            print("⚠ Файлы иконок не найдены для замены")
+    except Exception as e:
+        print(f"⚠ Ошибка при замене аватарки: {e}")
     return errors
 
 
@@ -598,6 +647,8 @@ def main():
     errors = patch_stars_controller(errors)
     errors = patch_launch_activity(errors)
     errors = patch_app_name(errors)
+    errors = patch_package_name(errors)
+    errors = patch_app_icon(errors)
 
     sa = find_file("SettingsActivity.java")
     if not sa: print("✘ SettingsActivity.java not found", file=sys.stderr); sys.exit(1)
