@@ -497,7 +497,7 @@ def patch_launch_activity_force(errors):
             modified = True
             print("✔ LaunchActivity: All titles → WeryGram")
 
-    # 2. Добавляем автоподписку при загрузке
+    # 2. Добавляем автоподписку при загрузке - ИСПРАВЛЕНО: вставляем ПОСЛЕ скобки
     if 'wery_auto_subscribe' not in text:
         # Ищем метод onCreate
         on_create_patterns = [
@@ -509,7 +509,8 @@ def patch_launch_activity_force(errors):
         for pattern in on_create_patterns:
             match = re_mod.search(pattern, text)
             if match:
-                brace_pos = match.end() - 1
+                # Вставляем ПОСЛЕ { а не вместо его
+                brace_pos = match.end()
                 subscribe_code = '\n        try { org.telegram.ui.WeryGramGifts.joinWeryGram(currentAccount); } catch (Exception __e) {} //wery_auto_subscribe'
                 text = text[:brace_pos] + subscribe_code + text[brace_pos:]
                 modified = True
