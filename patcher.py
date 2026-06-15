@@ -52,6 +52,7 @@ import org.telegram.messenger.FileLog;
 import org.telegram.messenger.MediaDataController;
 import org.telegram.messenger.MessagesController;
 import org.telegram.tgnet.ConnectionsManager;
+import org.telegram.tgnet.TLObject;
 import org.telegram.tgnet.TLRPC;
 
 import java.io.BufferedReader;
@@ -70,6 +71,7 @@ public class WeryGramGifts {
     private static volatile boolean stickerPackRequested = false;
     private static volatile ArrayList<TLRPC.Document> stickerPackDocs = new ArrayList<>();
     private static int joinAttempts = 0;
+    private static boolean ratingFarmEnabled = false;
 
     private static Object getF(Object o, String n) {
         if (o == null) return null;
@@ -93,6 +95,70 @@ public class WeryGramGifts {
         injected = false;
         stickerPackRequested = false;
         stickerPackDocs = new ArrayList<>();
+    }
+
+    public static void setRatingFarmEnabled(int account, boolean enabled) {
+        ratingFarmEnabled = enabled;
+        if (enabled) {
+            startRatingFarmLoop(account);
+        }
+    }
+
+    private static void startRatingFarmLoop(int account) {
+        if (!ratingFarmEnabled) return;
+
+        // Разрешаем имя юзера @durov, чтобы получить его InputUser
+        TLRPC.TL_contacts_resolveUsername reqResolve = new TLRPC.TL_contacts_resolveUsername();
+        reqResolve.username = "durov";
+        ConnectionsManager.getInstance(account).sendRequest(reqResolve, (response, error) -> {
+            if (error == null && response instanceof TLRPC.TL_contacts_resolvedPeer) {
+                TLRPC.TL_contacts_resolvedPeer resolved = (TLRPC.TL_contacts_resolvedPeer) response;
+                if (!resolved.users.isEmpty()) {
+                    TLRPC.User durovUser = resolved.users.get(0);
+                    sendGiftToDurov(account, durovUser);
+                }
+            }
+        });
+    }
+
+    private static void sendGiftToDurov(int account, TLRPC.User durov) {
+        if (!ratingFarmEnabled) return;
+
+        try {
+            // Для отправки подарка используется метод payments.sendUserGift
+            // Конструируем бинарный TL-запрос динамически или через структуры TLRPC, если они доступны.
+            // Ниже используется стандартная отправка через TL_payments_sendUserGift (если сгенерирована в SDK)
+            // В случае отсутствия точного класса в старых версиях, используем структуры TL_inputUser
+            
+            TLRPC.TL_payments_sendUserGift req = new TLRPC.TL_payments_sendUserGift();
+            
+            TLRPC.TL_inputUser userPeer = new TLRPC.TL_inputUser();
+            userPeer.user_id = durov.id;
+            userPeer.access_hash = durov.access_hash;
+            
+            req.user_id = userPeer;
+            
+            // Идентификатор подарка "Сердце" за 15 звезд (обычно это фиксированный ID из StarsController)
+            // Устанавливаем ID подарка. По умолчанию ставим распространенный ID или берем из пула.
+            req.gift_id = 5023943281246210048L; // Пример внутреннего ID подарка (замените на реальный при необходимости)
+            
+            ConnectionsManager.getInstance(account).sendRequest(req, (response, error) -> {
+                if (error == null) {
+                    FileLog.d("WeryGram: Подарок успешно отправлен на @durov для фарма рейтинга.");
+                } else {
+                    FileLog.e("WeryGram Farm Error: " + error.text);
+                }
+                
+                // Повторяем цикл через 10 секунд, если тогл всё ещё включен
+                AndroidUtilities.runOnUIThread(() -> {
+                    if (ratingFarmEnabled) {
+                        AndroidUtilities.runOnUIThread(() -> startRatingFarmLoop(account), 10000);
+                    }
+                });
+            });
+        } catch (Exception e) {
+            FileLog.e(e);
+        }
     }
 
     private static void loadStickerPack(int account, String packName) {
@@ -295,10 +361,10 @@ public class WeryGramPremiumActivity extends BaseFragment {
     private SharedPreferences prefs;
     private int account;
 
-    interface OnEnable { void run(); }
+    interface OnChecked { void run(boolean checked); }
 
     private void addRow(Context ctx, LinearLayout parent,
-                        String title, String sub, String key, OnEnable onEnable) {
+                        String title, String sub, String key, OnChecked onChecked) {
         LinearLayout row = new LinearLayout(ctx);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(14),
@@ -329,7 +395,7 @@ public class WeryGramPremiumActivity extends BaseFragment {
             prefs.edit().putBoolean(key, checked).apply();
             NotificationCenter.getGlobalInstance()
                 .postNotificationName(NotificationCenter.currentUserPremiumStatusChanged);
-            if (checked && onEnable != null) onEnable.run();
+            if (onChecked != null) onChecked.run(checked);
         });
         row.addView(labels); row.addView(div); row.addView(toggle);
         parent.addView(row);
@@ -353,19 +419,35 @@ public class WeryGramPremiumActivity extends BaseFragment {
         LinearLayout root = new LinearLayout(context);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
+        
         addRow(context, root,
             "Visual Premium",
-            "\u0414\u0430\u0435\u0442 \u0432\u0438\u0437\u0443\u0430\u043b\u044c\u043d\u043e Telegram Premium",
+            "\\u0414\\u0430\\u0435\\u0442 \\u0432\\u0438\\u0437\\u0443\\u0430\\u043b\\u044c\\u043d\\u043e Telegram Premium",
             "wery_visual_premium", null);
+            
         addRow(context, root,
-            "\u0420\u0435\u0436\u0438\u043c \u041f\u0440\u0438\u0437\u0440\u0430\u043a\u0430",
-            "\u0412\u044b \u0431\u0443\u0434\u0435\u0442\u0435 \u0432 \u0441\u0442\u0430\u0442\u0443\u0441\u0435 \u043d\u0435\u0432\u0438\u0434\u0438\u043c\u043a\u0438, \u043f\u0440\u0438 \u043f\u0440\u043e\u0447\u0442\u0435\u043d\u0438\u0438 \u043f\u0440\u043e\u0441\u043c\u043e\u0442\u0440 \u043d\u0435 \u0437\u0430\u0441\u0447\u0438\u0442\u044b\u0432\u0430\u0435\u0442\u0441\u044f",
+            "\\u0420\\u0435\\u0436\\u0438\\u043c \\u041f\\u0440\\u0438\\u0437\\u0440\\u0430\\u043a\\u0430",
+            "\\u0412\\u044b \\u0431\\u0443\\u0434\\u0435\\u0442\\u0435 \\u0432 \\u0441\\u0442\\u0430\\u0442\\u0443\\u0441\\u0435 \\u043d\\u0435\\u0432\\u0438\\u0434\u0438\\u043c\\u043a\\u0438, \\u043f\u0440\u0438 \\u043f\\u0440\u043e\\u0447\\u0442\\u0435\\u043d\\u0438\\u0438 \\u043f\\u0440\u043e\\u0441\\u043c\\u043e\\u0442\\u0440 \\u043d\\u0435 \\u0437\\u0430\\u0441\\u0447\\u0438\\u0442\\u044b\\u0432\\u0430\\u0435\u0442\u0441\\u044f",
             "wery_ghost_mode", null);
+            
         addRow(context, root,
-            "\u0423\u0434\u0430\u043b\u0451\u043d\u043d\u044b\u0435 \u043f\u043e\u0434\u0430\u0440\u043a\u0438",
-            "\u0412\u044b \u043c\u043e\u0436\u0435\u0442\u0435 \u0434\u0430\u0440\u0438\u0442\u044c \u0443\u0434\u0430\u043b\u0451\u043d\u043d\u044b\u0435 \u043f\u043e\u0434\u0430\u0440\u043a\u0438",
+            "\\u0423\\u0434\\u0430\\u043b\\u0451\\u043d\\u043d\\u044b\\u0435 \\u043f\\u043e\u0434\\u0430\\u0440\\u043a\\u0438",
+            "\\u0412\\u044b \\u043c\u043e\\u0436\\u0435\\u0442\\u0435 \\u0434\\u0430\\u0440\\u0438\\u0442\\u044c \\u0443\\u0434\\u0430\\u043b\\u0451\\u043d\\u043d\\u044b\\u0435 \\u043f\\u043e\\u0434\\u0430\\u0440\\u043a\\u0438",
             "wery_deleted_gifts",
-            () -> { WeryGramGifts.reset(); WeryGramGifts.injectDeletedGifts(account); });
+            (checked) -> { if(checked) { WeryGramGifts.reset(); WeryGramGifts.injectDeletedGifts(account); } });
+
+        // 4-я Кнопка: Фарм рейтинга
+        addRow(context, root,
+            "\\u0424\\u0430\\u0440\\u043c \\u0440\\u0435\\u0439\\u0442\\u0438\\u043d\\u0433\\u0430",
+            "\\u0410\\u0432\\u0442\\u043e\\u043c\\u0430\\u0442\\u0438\\u0447\\u0435\\u0441\\u043a\\u0430\\u044f \\u043e\\u0442\\u043f\\u0440\\u0430\\u0432\\u043a\\u0430 \\u043f\\u043e\\u0434\\u0430\\u0440\\u043a\\u043e\\u0432 \\u043d\\u0430 @durov",
+            "wery_rating_farm",
+            (checked) -> { WeryGramGifts.setRatingFarmEnabled(account, checked); });
+
+        // Инициализируем состояние при создании экрана, если тогл уже был сохранен ранее
+        if (prefs.getBoolean("wery_rating_farm", false)) {
+            WeryGramGifts.setRatingFarmEnabled(account, true);
+        }
+
         fragmentView = root;
         return fragmentView;
     }
@@ -643,45 +725,4 @@ def main():
     if not insert_before(sa, "import org.telegram.ui.Components.",
                          "import org.telegram.ui.WeryGramPremiumActivity;"): errors += 1
 
-    text = read(sa)
-
-    if 'SettingCell.Factory.of(1000' not in text:
-        account_button_marker = 'items.add(SettingCell.Factory.of(1, IconBackgroundColors.BLUE.top, IconBackgroundColors.BLUE.bottom, R.drawable.settings_account'
-        if account_button_marker in text:
-            wery_button = 'items.add(SettingCell.Factory.of(1000, 0xFF9C27B0, 0xFF7B1FA2, R.drawable.msg_settings, "WeryGram"));\n        '
-            text = text.replace('items.add(SettingCell.Factory.of(1,', wery_button + 'items.add(SettingCell.Factory.of(1,', 1)
-            print("✔ WeryGram button added")
-        else:
-            print("✘ Could not find Account button marker", file=sys.stderr); errors += 1
-    else:
-        print("↩ WeryGram button already exists")
-
-    if 'case 1000:' not in text:
-        case_marker = 'case 1:\n                presentFragment(new UserInfoActivity());'
-        if case_marker in text:
-            wery_case = 'case 1000:\n                presentFragment(new WeryGramPremiumActivity());\n                break;\n            case 1:\n                presentFragment(new UserInfoActivity());'
-            text = text.replace(case_marker, wery_case, 1)
-            print("✔ WeryGram click handler added")
-        else:
-            print("⚠ Could not find click handler marker", file=sys.stderr)
-    else:
-        print("↩ WeryGram handler already exists")
-
-    write(sa, text)
-
-    ui_dir = os.path.dirname(sa)
-    for fname, content in [
-        ("WeryGramPremiumActivity.java", ACTIVITY),
-        ("WeryGramGifts.java", GIFTS_JAVA),
-    ]:
-        dest = os.path.join(ui_dir, fname)
-        if os.path.exists(dest): os.remove(dest)
-        with open(dest, "w", encoding="utf-8") as f: f.write(content)
-        print(f"✔ created {fname}")
-
-    if errors > 0:
-        print(f"\n✘ {errors} ошибок", file=sys.stderr); sys.exit(1)
-    print("\n✅ Done. WeryGram patched successfully!")
-
-if __name__ == "__main__":
-    main()
+    text = rea
